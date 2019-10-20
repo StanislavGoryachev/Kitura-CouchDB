@@ -34,7 +34,7 @@ public class Database {
     /// Indicates when to update.
     public enum StaleOptions {
         /// CouchDB will not refresh the view even if it is stale.
-        case OK
+        case ok
         /// CouchDB will update the view after the stale result is returned.
         case updateAfter
     }
@@ -592,7 +592,7 @@ extension Database {
                 case .skip (let value):
                     paramString += "skip=\(value)&"
                 case .stale (let value):
-                    paramString += "stale=\"\(value)\"&"
+                    paramString += "stale=\(value)&"
                 case .startKey (let value):
                     if value.count == 1 {
                         if let startKey = value[0] as? String {
