@@ -87,7 +87,7 @@ public class Database {
         case polygon([GeoCoordinates])
         
         /// Specify a raduus query as distance from point measured in meters.
-        case radius (Int)
+        case radius ((point: GeoCoordinates, radius: Int))
         
         /// Use the reduction function. Default is true.
         case reduce (Bool)
@@ -336,7 +336,7 @@ public class Database {
     /// Executes the specified view function from the specified design document.
     ///
     /// - parameters:
-    ///     - view: View function name String.
+    ///     - geo: Geo function name String.
     ///     - design: Design document name.
     ///     - params: Query parameters for the function.
     ///     - callback: Callback containing either the `AllDatabaseDocuments` or a `CouchDBError`.
@@ -550,7 +550,7 @@ extension Database {
             }
             
             func urlEncode(coordinate: GeoCoordinates) -> String {
-                return CouchDBUtils.escape(url: "\(coordinate.long) \(coordinate.lat)")
+                return CouchDBUtils.escape(url: "\(coordinate.lat) \(coordinate.long)")
             }
             
             var paramString = ""
@@ -624,8 +624,8 @@ extension Database {
                 case .polygon(let value):
                     let polyString = value.map{ urlEncode(coordinate: $0) }.joined(separator: ",")
                     paramString += "g=polygon((\(polyString)))&"
-                case .radius(let value):
-                    paramString += "radius=\(value)&"
+                case .radius(let (coordinates, radius)):
+                    paramString += "&lat=\(coordinates.lat)&lon=\(coordinates.long)&radius=\(radius)&"
                 }
             }
 
