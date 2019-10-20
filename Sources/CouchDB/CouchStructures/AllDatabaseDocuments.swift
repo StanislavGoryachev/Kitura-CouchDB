@@ -42,12 +42,24 @@ import Foundation
  */
 public struct AllDatabaseDocuments {
     init(total_rows: Int, offset: Int, rows: [[String: Any]], update_seq: String? = nil) {
+        self.bookmark = nil
         self.total_rows = total_rows
         self.offset = offset
         self.rows = rows
         self.update_seq = update_seq
     }
 
+    init(bookmark: String, rows: [[String: Any]], update_seq: String? = nil) {
+        self.bookmark = bookmark
+        self.total_rows = nil
+        self.offset = nil
+        self.rows = rows
+        self.update_seq = update_seq
+    }
+    
+    /// Allows you to page through the results.
+    public let bookmark: String?
+    
     /// Number of documents in the database/view.
     public let total_rows: Int?
 
@@ -79,3 +91,4 @@ public struct AllDatabaseDocuments {
         return documents
     }
 }
+

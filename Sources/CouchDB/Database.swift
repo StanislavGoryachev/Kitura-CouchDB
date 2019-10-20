@@ -38,6 +38,9 @@ public class Database {
         /// CouchDB will update the view after the stale result is returned.
         case updateAfter
     }
+    
+    /// Latitude and longitude for Geo query
+    public typealias GeoCoordinates = (lat: Double, long: Double)
 
     /// Query parameters for view functions from design documents.
     public enum QueryParameters {
@@ -73,7 +76,19 @@ public class Database {
 
         /// Limit the number of the returned documents to the specified number.
         case limit (Int)
+        
+        /// Returns all results by sorting their distances to the center of the query geometry
+        case nearest (Bool)
+        
+        /// Specify a point query with a latitude lat, a longitude lon
+        case point (GeoCoordinates)
 
+        /// Specify a polygon query, last point coordinate must be the same as the first
+        case polygon([GeoCoordinates])
+        
+        /// Specify a raduus query as distance from point measured in meters.
+        case radius (Int)
+        
         /// Use the reduction function. Default is true.
         case reduce (Bool)
 
@@ -104,25 +119,6 @@ public class Database {
 
     /// `ConnectionProperties` the Database will use for its actions.
     public let connProperties: ConnectionProperties
-
-    private static func createQueryParamForArray(_ array: [Any]) -> String {
-        var result = "["
-        var comma = ""
-        for element in array {
-            if let item = element as? String {
-                result += "\(comma)\"\(CouchDBUtils.escape(url: item))\""
-            } else {
-                let objMirror = Mirror(reflecting: element)
-                if objMirror.subjectType == NSObject.self {
-                    result += "\(comma){}"
-                } else {
-                    result += "\(comma)\(element)"
-                }
-            }
-            comma = ","
-        }
-        return result + "]"
-    }
 
     // MARK: Initializer
     
@@ -293,87 +289,20 @@ public class Database {
     ///     - params: Query parameters for the function.
     ///     - callback: Callback containing either the `AllDatabaseDocuments` or a `CouchDBError`.
     public func queryByView(_ view: String, ofDesign design: String, usingParameters params: [Database.QueryParameters], callback: @escaping (AllDatabaseDocuments?, CouchDBError?) -> ()) {
-        var paramString = ""
-        var keys: [Any]?
+        
+        let parsedParams = Parameters(params: params)
 
-        for param in params {
-            switch param {
-            case .conflicts (let value):
-                paramString += "conflicts=\(value)&"
-            case .descending (let value):
-                paramString += "descending=\(value)&"
-            case .endKey (let value):
-                if value.count == 1 {
-                    if let endKey = value[0] as? String {
-                        paramString += "endkey=\"\(CouchDBUtils.escape(url: endKey))\"&"
-                    } else {
-                        paramString += "endkey=\(value[0])&"
-                    }
-                } else {
-                    paramString += "endkey=" + Database.createQueryParamForArray(value) + "&"
-                }
-            case .endKeyDocID (let value):
-                paramString += "endkey_docid=\"\(CouchDBUtils.escape(url: value))\"&"
-            case .group (let value):
-                paramString += "group=\(value)&"
-            case .groupLevel (let value):
-                paramString += "group_level=\(value)&"
-            case .includeDocs (let value):
-                paramString += "include_docs=\(value)&"
-            case .attachments (let value):
-                paramString += "attachments=\(value)&"
-            case .attachmentEncodingInfo (let value):
-                paramString += "att_encoding_info=\(value)&"
-            case .inclusiveEnd (let value):
-                paramString += "inclusive_end=\(value)&"
-            case .limit (let value):
-                paramString += "limit=\(value)&"
-            case .reduce (let value):
-                paramString += "reduce=\(value)&"
-            case .skip (let value):
-                paramString += "skip=\(value)&"
-            case .stale (let value):
-                paramString += "stale=\"\(value)\"&"
-            case .startKey (let value):
-                if value.count == 1 {
-                    if let startKey = value[0] as? String {
-                        paramString += "startkey=\"\(CouchDBUtils.escape(url: startKey))\"&"
-                    } else {
-                        paramString += "startkey=\(value[0])&"
-                    }
-                } else {
-                    paramString += "startkey=" + Database.createQueryParamForArray(value) + "&"
-                }
-            case .startKeyDocID (let value):
-                paramString += "start_key_doc_id=\"\(CouchDBUtils.escape(url: value))\"&"
-            case .updateSequence (let value):
-                paramString += "update_seq=\(value)&"
-            case .keys (let value):
-                if value.count == 1 {
-                    if value[0] is String {
-                        paramString += "key=\"\(CouchDBUtils.escape(url: value[0] as! String))\"&"
-                    } else if let anyArray = value[0] as? [Any] {
-                        paramString += "key=" + Database.createQueryParamForArray(anyArray) + "&"
-                    }
-                } else {
-                    keys = value
-                }
-            }
-        }
-
-        if paramString.count > 0 {
-            paramString = "?" + String(paramString.dropLast())
-        }
-
-        var method = "GET"
-        var hasBody = false
-        let body: [String: Any]?
-        if let keys = keys {
+        let paramString = parsedParams.urlEncoded
+        
+        let method: String
+        let hasBody: Bool
+        let body = parsedParams.body
+        if body != nil {
             method = "POST"
             hasBody = true
-            body = ["keys": keys]
-        } else {
-            body = nil
+        }else {
+            method = "GET"
+            hasBody = false
         }
 
         let requestOptions = CouchDBUtils.prepareRequest(connProperties, method: method, path: "/\(escapedName)/_design/\(CouchDBUtils.escape(url: design))/_view/\(CouchDBUtils.escape(url: view))\(paramString)", hasBody: hasBody)
@@ -404,6 +333,53 @@ public class Database {
         }
     }
 
+    /// Executes the specified view function from the specified design document.
+    ///
+    /// - parameters:
+    ///     - view: View function name String.
+    ///     - design: Design document name.
+    ///     - params: Query parameters for the function.
+    ///     - callback: Callback containing either the `AllDatabaseDocuments` or a `CouchDBError`.
+    public func queryByGeo(_ geo: String, ofDesign design: String, usingParameters params: [Database.QueryParameters], callback: @escaping (AllDatabaseDocuments?, CouchDBError?) -> ()) {
+        
+        let parsedParams = Parameters(params: params)
+
+        let paramString = parsedParams.urlEncoded
+        
+        var method = "GET"
+        var hasBody = false
+        let body = parsedParams.body
+        if body != nil {
+            method = "POST"
+            hasBody = true
+        }
+
+        let requestOptions = CouchDBUtils.prepareRequest(connProperties, method: method, path: "/\(escapedName)/_design/\(CouchDBUtils.escape(url: design))/_geo/\(CouchDBUtils.escape(url: geo))\(paramString)", hasBody: hasBody)
+        let req = HTTP.request(requestOptions) { response in
+            if let response = response {
+                guard response.statusCode == HTTPStatusCode.OK else {
+                    return callback(nil, CouchDBUtils.getBodyAsError(response))
+                }
+                if let bodyData = CouchDBUtils.getBodyAsData(response),
+                    let bodyJSON = (try? JSONSerialization.jsonObject(with: bodyData, options: [])) as? [String:Any],
+                    let bookmark = bodyJSON["bookmark"] as? String,
+                    let rows = bodyJSON["rows"] as? [[String: Any]]
+                {
+                    return callback(AllDatabaseDocuments(bookmark: bookmark, rows: rows), nil)
+                } else {
+                    return callback(nil, CouchDBError(.internalServerError, reason: "Failed to decode AllDatabaseDocuments from response"))
+                }
+            } else {
+                callback(nil, CouchDBError(.internalServerError, reason: "No response from queryByView request"))
+            }
+        }
+
+        if let body = body, let bodyAsData = try? JSONSerialization.data(withJSONObject: body, options: []) {
+            req.end(bodyAsData)
+        } else {
+            req.end()
+        }
+    }
     
     /**
      Retrieve all documents in the database using the CouchDB `_all_docs` view.
@@ -545,4 +521,126 @@ public class Database {
         let requestOptions = CouchDBUtils.prepareRequest(connProperties, method: "DELETE", path: "/\(escapedName)/\(CouchDBUtils.escape(url: docId))/\(CouchDBUtils.escape(url: attachmentName))?rev=\(CouchDBUtils.escape(url: docRevison))", hasBody: false)
         CouchDBUtils.deleteRequest(options: requestOptions, callback: callback)
     }
+}
+
+extension Database {
+    
+    struct Parameters {
+        let urlEncoded: String
+        let body: [String: Any]?
+        
+        init(params: [Database.QueryParameters]) {
+            func createQueryParamForArray(_ array: [Any]) -> String {
+                var result = "["
+                var comma = ""
+                for element in array {
+                    if let item = element as? String {
+                        result += "\(comma)\"\(CouchDBUtils.escape(url: item))\""
+                    } else {
+                        let objMirror = Mirror(reflecting: element)
+                        if objMirror.subjectType == NSObject.self {
+                            result += "\(comma){}"
+                        } else {
+                            result += "\(comma)\(element)"
+                        }
+                    }
+                    comma = ","
+                }
+                return result + "]"
+            }
+            
+            func urlEncode(coordinate: GeoCoordinates) -> String {
+                return CouchDBUtils.escape(url: "\(coordinate.long) \(coordinate.lat)")
+            }
+            
+            var paramString = ""
+            var keys: [Any]?
+            for param in params {
+                switch param {
+                case .conflicts (let value):
+                    paramString += "conflicts=\(value)&"
+                case .descending (let value):
+                    paramString += "descending=\(value)&"
+                case .endKey (let value):
+                    if value.count == 1 {
+                        if let endKey = value[0] as? String {
+                            paramString += "endkey=\"\(CouchDBUtils.escape(url: endKey))\"&"
+                        } else {
+                            paramString += "endkey=\(value[0])&"
+                        }
+                    } else {
+                        paramString += "endkey=" + createQueryParamForArray(value) + "&"
+                    }
+                case .endKeyDocID (let value):
+                    paramString += "endkey_docid=\"\(CouchDBUtils.escape(url: value))\"&"
+                case .group (let value):
+                    paramString += "group=\(value)&"
+                case .groupLevel (let value):
+                    paramString += "group_level=\(value)&"
+                case .includeDocs (let value):
+                    paramString += "include_docs=\(value)&"
+                case .attachments (let value):
+                    paramString += "attachments=\(value)&"
+                case .attachmentEncodingInfo (let value):
+                    paramString += "att_encoding_info=\(value)&"
+                case .inclusiveEnd (let value):
+                    paramString += "inclusive_end=\(value)&"
+                case .limit (let value):
+                    paramString += "limit=\(value)&"
+                case .reduce (let value):
+                    paramString += "reduce=\(value)&"
+                case .skip (let value):
+                    paramString += "skip=\(value)&"
+                case .stale (let value):
+                    paramString += "stale=\"\(value)\"&"
+                case .startKey (let value):
+                    if value.count == 1 {
+                        if let startKey = value[0] as? String {
+                            paramString += "startkey=\"\(CouchDBUtils.escape(url: startKey))\"&"
+                        } else {
+                            paramString += "startkey=\(value[0])&"
+                        }
+                    } else {
+                        paramString += "startkey=" + createQueryParamForArray(value) + "&"
+                    }
+                case .startKeyDocID (let value):
+                    paramString += "start_key_doc_id=\"\(CouchDBUtils.escape(url: value))\"&"
+                case .updateSequence (let value):
+                    paramString += "update_seq=\(value)&"
+                case .keys (let value):
+                    if value.count == 1 {
+                        if value[0] is String {
+                            paramString += "key=\"\(CouchDBUtils.escape(url: value[0] as! String))\"&"
+                        } else if let anyArray = value[0] as? [Any] {
+                            paramString += "key=" + createQueryParamForArray(anyArray) + "&"
+                        }
+                    } else {
+                        keys = value
+                    }
+                case .nearest(let value):
+                    paramString += "nearest=\(value)&"
+                case .point(let value):
+                    paramString += "g=point(\(urlEncode(coordinate: value)))&"
+                case .polygon(let value):
+                    let polyString = value.map{ urlEncode(coordinate: $0) }.joined(separator: ",")
+                    paramString += "g=polygon((\(polyString)))&"
+                case .radius(let value):
+                    paramString += "radius=\(value)&"
+                }
+            }
+
+            if paramString.count > 0 {
+                paramString = "?" + String(paramString.dropLast())
+            }
+
+            urlEncoded = paramString
+            
+            if let keys = keys {
+                body = ["keys": keys]
+            } else {
+                body = nil
+            }
+        }
+    }
+    
 }
