@@ -87,7 +87,7 @@ public class Database {
         case polygon([GeoCoordinates])
         
         /// Specify a raduus query as distance from point measured in meters.
-        case radius ((point: GeoCoordinates, radius: Int))
+        case circle ((point: GeoCoordinates, radius: Int))
         
         /// Use the reduction function. Default is true.
         case reduce (Bool)
@@ -624,7 +624,7 @@ extension Database {
                 case .polygon(let value):
                     let polyString = value.map{ urlEncode(coordinate: $0) }.joined(separator: ",")
                     paramString += "g=polygon((\(polyString)))&"
-                case .radius(let (coordinates, radius)):
+                case .circle(let (coordinates, radius)):
                     paramString += "&lat=\(coordinates.lat)&lon=\(coordinates.long)&radius=\(radius)&"
                 }
             }
