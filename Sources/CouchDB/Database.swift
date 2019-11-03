@@ -40,7 +40,31 @@ public class Database {
     }
     
     /// Latitude and longitude for Geo query
-    public typealias GeoCoordinates = (lat: Double, long: Double)
+    public struct GeoCoordinates {
+        let lat: Double
+        let lon: Double
+        
+        public init(lat: Double, lon: Double) {
+            self.lat = lat
+            self.lon = lon
+        }
+    }
+    
+    /// Circle representation for Geo query
+    @dynamicMemberLookup
+    public struct GeoCircle {
+        let coordinates: GeoCoordinates
+        let radius: Int
+        
+        public init(lat: Double, lon: Double, radius: Int) {
+            self.coordinates = GeoCoordinates(lat: lat, lon: lon)
+            self.radius = radius
+        }
+        
+        subscript(dynamicMember path: KeyPath<GeoCoordinates, Double>) -> Double {
+            return coordinates[keyPath: path]
+        }
+    }
 
     /// Query parameters for view functions from design documents.
     public enum QueryParameters {
@@ -87,7 +111,7 @@ public class Database {
         case polygon([GeoCoordinates])
         
         /// Specify a raduus query as distance from point measured in meters.
-        case circle ((point: GeoCoordinates, radius: Int))
+        case circle (GeoCircle)
         
         /// Use the reduction function. Default is true.
         case reduce (Bool)
@@ -550,7 +574,7 @@ extension Database {
             }
             
             func urlEncode(coordinate: GeoCoordinates) -> String {
-                return CouchDBUtils.escape(url: "\(coordinate.lat) \(coordinate.long)")
+                return CouchDBUtils.escape(url: "\(coordinate.lat) \(coordinate.lon)")
             }
             
             var paramString = ""
@@ -624,8 +648,8 @@ extension Database {
                 case .polygon(let value):
                     let polyString = value.map{ urlEncode(coordinate: $0) }.joined(separator: ",")
                     paramString += "g=polygon((\(polyString)))&"
-                case .circle(let (coordinates, radius)):
-                    paramString += "&lat=\(coordinates.lat)&lon=\(coordinates.long)&radius=\(radius)&"
+                case .circle(let circle):
+                    paramString += "&lat=\(circle.lat)&lon=\(circle.lon)&radius=\(circle.radius)&"
                 }
             }
 
